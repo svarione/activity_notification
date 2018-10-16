@@ -3,6 +3,7 @@ source 'https://rubygems.org'
 gemspec
 
 gem 'rails', '~> 5.2'
+gem 'bulk_insert'
 
 group :development do
   gem 'bullet'
