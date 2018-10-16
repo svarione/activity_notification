@@ -192,7 +192,7 @@ module ActivityNotification
         send_email            = options.has_key?(:send_email)                  ? options[:send_email]            : true
         send_later            = options.has_key?(:send_later)                  ? options[:send_later]            : true
         notifications_hash = []
-        targets.map { |target| notifications_hash << Notification.prepare_notification_to(target, notifiable, options) }
+        targets.map { |target| notifications_hash << Notification.prepare_notification(target, notifiable, options) }
         Notification.bulk_insert values: notifications_hash
         return unless send_email
         Notification.order('created_at DESC').limit(notifications_hash.count).each do |notification|
@@ -233,16 +233,6 @@ module ActivityNotification
           notification.publish_to_optional_targets(options[:optional_targets] || {})
         end
         # Return generated notification
-        notification
-      end
-
-      def prepare_notification_to(target, notifiable, options = {})
-        send_email            = options.has_key?(:send_email)                  ? options[:send_email]            : true
-        send_later            = options.has_key?(:send_later)                  ? options[:send_later]            : true
-        publish_optional_targets = options.has_key?(:publish_optional_targets) ? options[:publish_optional_targets] : true
-        # Generate notification
-        notification = prepare_notification(target, notifiable, options)
-        # Return generated notification hash
         notification
       end
 
@@ -328,37 +318,25 @@ module ActivityNotification
       # @api private
       def store_notification(target, notifiable, key, options = {})
         target_type        = target.to_class_name
-        group              = options[:group]              || notifiable.notification_group(target_type, key)
-        group_expiry_delay = options[:group_expiry_delay] || notifiable.notification_group_expiry_delay(target_type, key)
-        notifier           = options[:notifier]           || notifiable.notifier(target_type, key)
         parameters         = options[:parameters]         || {}
         parameters.merge!(options.except(*available_options))
         parameters.merge!(notifiable.notification_parameters(target_type, key))
-
-        # Bundle notification group by target, notifiable_type, group and key
-        # Different notifiable.id can be made in a same group
-        group_owner_notifications = filtered_by_target(target).filtered_by_type(notifiable.to_class_name).filtered_by_key(key)
-                                   .filtered_by_group(group).group_owners_only.unopened_only
-        group_owner = group_expiry_delay.present? ?
-                        group_owner_notifications.within_expiration_only(group_expiry_delay).earliest :
-                        group_owner_notifications.earliest
-        notification_fields = { target: target, notifiable: notifiable, key: key, group: group, parameters: parameters, notifier: notifier }
-        notification_fields = notification_fields.merge(group_owner: group_owner) if group.present? && group_owner.present?
+        notification_fields = prepare_notification(target, notifiable, options).merge(parameters: parameters)
         create(notification_fields)
       end
 
-      def prepare_notification(target, notifiable, key, options = {})
+      def prepare_notification(target, notifiable, options = {})
         target_type        = target.to_class_name
+        key                = options[:key]                || notifiable.default_notification_key
         group              = options[:group]              || notifiable.notification_group(target_type, key)
         group_expiry_delay = options[:group_expiry_delay] || notifiable.notification_group_expiry_delay(target_type, key)
         notifier           = options[:notifier]           || notifiable.notifier(target_type, key)
-        parameters         = options[:parameters]         || {}
-        parameters.merge!(options.except(*available_options))
-        parameters.merge!(notifiable.notification_parameters(target_type, key))
+        # parameters         = options[:parameters]         || {}
+        # parameters.merge!(options.except(*available_options))
+        # parameters.merge!(notifiable.notification_parameters(target_type, key))
 
         # Bundle notification group by target, notifiable_type, group and key
         # Different notifiable.id can be made in a same group
-        key = key[:key].blank? ? notifiable.to_class_name+'.default' : key[:key]
         group_owner_notifications = filtered_by_target(target).filtered_by_type(notifiable.to_class_name).filtered_by_key(key)
                                    .filtered_by_group(group).group_owners_only.unopened_only
         group_owner = group_expiry_delay.present? ?
@@ -367,12 +345,11 @@ module ActivityNotification
         notification_fields = {
           target_type: target_type, target_id: target.id,
           notifiable_type: notifiable.to_class_name, notifiable_id: notifiable.id,
-          key: key }
-        notification_fields = notification_fields.merge(group_type: group.to_class_name) if group.present?
-        notification_fields = notification_fields.merge(group_id: group.id) if group.present?
-        notification_fields = notification_fields.merge(group_owner_id: group_owner.id) if group.present? && group_owner.present?
-        notification_fields = notification_fields.merge(notifier_type: notifier.to_class_name) if notifier.present?
-        notification_fields = notification_fields.merge(notifier_id: notifier.id) if notifier.present?
+          key: key, group_type: group&.to_class_name, group_id: group&.id,
+          group_owner_id: group_owner&.id, notifier_type: notifier&.to_class_name,
+          notifier_id: notifier&.id
+        }
+        # ATTENTION: i have removed parameters becouse bulk insert can't manage serialize attribute
         notification_fields
       end
     end
