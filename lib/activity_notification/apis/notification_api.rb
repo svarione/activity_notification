@@ -317,11 +317,8 @@ module ActivityNotification
       # Stores notifications to datastore
       # @api private
       def store_notification(target, notifiable, key, options = {})
-        target_type        = target.to_class_name
-        parameters         = options[:parameters]         || {}
-        parameters.merge!(options.except(*available_options))
-        parameters.merge!(notifiable.notification_parameters(target_type, key))
-        notification_fields = prepare_notification(target, notifiable, options).merge(parameters: parameters)
+        notification_fields = prepare_notification(target, notifiable, options)
+        notification_fields[:parameters] = YAML.load(notification_fields[:parameters])
         create(notification_fields)
       end
 
@@ -331,9 +328,9 @@ module ActivityNotification
         group              = options[:group]              || notifiable.notification_group(target_type, key)
         group_expiry_delay = options[:group_expiry_delay] || notifiable.notification_group_expiry_delay(target_type, key)
         notifier           = options[:notifier]           || notifiable.notifier(target_type, key)
-        # parameters         = options[:parameters]         || {}
-        # parameters.merge!(options.except(*available_options))
-        # parameters.merge!(notifiable.notification_parameters(target_type, key))
+        parameters         = options[:parameters]         || {}
+        parameters.merge!(options.except(*available_options))
+        parameters.merge!(notifiable.notification_parameters(target_type, key))
 
         # Bundle notification group by target, notifiable_type, group and key
         # Different notifiable.id can be made in a same group
@@ -347,9 +344,8 @@ module ActivityNotification
           notifiable_type: notifiable.to_class_name, notifiable_id: notifiable.id,
           key: key, group_type: group&.to_class_name, group_id: group&.id,
           group_owner_id: group_owner&.id, notifier_type: notifier&.to_class_name,
-          notifier_id: notifier&.id
+          notifier_id: notifier&.id, parameters: YAML.dump(parameters)
         }
-        # ATTENTION: i have removed parameters becouse bulk insert can't manage serialize attribute
         notification_fields
       end
     end
